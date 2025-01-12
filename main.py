@@ -174,7 +174,7 @@ async def process_manager_name_table(message: types.Message, state: FSMContext):
         last_name = data['last_name']
         city = data['city']
         manager_name = data['manager_name']
-        rename_spreadsheet(new_spreadsheet_id, first_name, last_name, manager_name)
+        rename_spreadsheet(new_spreadsheet_id, first_name, city, manager_name)
 
         # Запись обновленного last_money в новую таблицу
         if last_money:
