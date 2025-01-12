@@ -126,8 +126,10 @@ async def process_callback_create_table(callback_query: types.CallbackQuery):
 async def process_client_id(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     client_id = message.text
-
-    client_data = get_client_data(client_id)
+    if not client_id.isdigit():
+        await message.reply("ID клиента должно быть числом. Попробуйте снова.")
+        return
+    client_data = get_client_data(int(client_id))
     if not client_data:
         await message.reply("Клиент с таким ID не найден. Пожалуйста, попробуйте снова.", reply_markup=cancel_keyboard())
         return
