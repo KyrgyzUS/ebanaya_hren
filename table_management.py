@@ -9,7 +9,7 @@ import asyncio
 import pdfkit
 from aiogram import types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
-
+import psycopg2
 import gspread
 from googleapiclient.discovery import build
 from google.oauth2.service_account import Credentials
@@ -18,9 +18,10 @@ from databases import (
     get_db_connection,
     gspread_client,
     get_client_data,
-    save_last_sf_id,
-    get_last_money,
-    write_last_money_to_new_sf
+    update_last_sf_id,
+    update_last_money,
+fetch_and_update_last_money,
+drive_service
 )
 
 # Настройка клавиатуры
@@ -40,7 +41,7 @@ source_spreadsheet_id = '19vQzsbZPEzTzgMqGtqTCabSlzvdWhVNKIm8nWU2t47c'
 def create_spreadsheet_copy():
     try:
         copy_title = "Copy of Source Spreadsheet"
-        copied_file = gspread_client.drive_service.files().copy(
+        copied_file = drive_service.files().copy(
             fileId=source_spreadsheet_id,
             body={"name": copy_title}
         ).execute()
@@ -53,7 +54,7 @@ def create_spreadsheet_copy():
             'role': 'writer',
             'emailAddress': 'golandecn@gmail.com'
         }
-        gspread_client.drive_service.permissions().create(
+        drive_service.permissions().create(
             fileId=new_spreadsheet_id,
             body=permission,
             fields='id'
@@ -64,7 +65,7 @@ def create_spreadsheet_copy():
             'type': 'anyone',
             'role': 'writer'
         }
-        gspread_client.drive_service.permissions().create(
+        drive_service.permissions().create(
             fileId=new_spreadsheet_id,
             body=permission_reader,
         ).execute()
@@ -79,7 +80,7 @@ def rename_spreadsheet(spreadsheet_id, first_name, last_name, manager_name):
         today = datetime.today().strftime('%d.%m.%Y')
         new_title = f"{first_name} {last_name} - {manager_name} {today}"
 
-        gspread_client.drive_service.files().update(
+        drive_service.files().update(
             fileId=spreadsheet_id,
             body={"name": new_title}
         ).execute()
@@ -88,7 +89,7 @@ def rename_spreadsheet(spreadsheet_id, first_name, last_name, manager_name):
 
 def delete_spreadsheet(spreadsheet_id):
     try:
-        gspread_client.drive_service.files().delete(fileId=spreadsheet_id).execute()
+        drive_service.files().delete(fileId=spreadsheet_id).execute()
     except Exception as e:
         print(f"Ошибка при удалении таблицы: {e}")
 
@@ -112,12 +113,32 @@ def get_spreadsheet_url(spreadsheet_id):
     return f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit"
 
 def get_last_money(client_id):
+    conn = None
+    cursor = None
     try:
-        last_money = get_last_money(client_id)
-        return last_money
-    except Exception as e:
-        print(f"Ошибка при получении last_money: {e}")
+        # Подключение к базе данных PostgreSQL
+        conn = psycopg2.connect(
+            dsn=os.getenv('DATABASE_URL'),
+            sslmode='require'
+        )
+        cursor = conn.cursor()
+
+        # Выполнение запроса для получения last_money
+        cursor.execute('SELECT last_money FROM clients WHERE id = %s', (client_id,))
+        last_money = cursor.fetchone()
+
+        # Возвращаем значение, если оно найдено
+        if last_money:
+            return last_money[0]
         return None
+    except Exception as e:
+        print(f"Ошибка при получении last_money для клиента {client_id}: {e}")
+        return None
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 def write_last_money_to_new_sf(spreadsheet_id, last_money):
     try:
@@ -141,7 +162,7 @@ async def export_spreadsheet_to_pdf(message: types.Message, sheet_url: str):
             spreadsheet_title = "Untitled Spreadsheet"
 
         # Экспортируем таблицу в PDF
-        request = gspread_client.drive_service.files().export_media(fileId=SPREADSHEET_ID, mimeType='application/pdf')
+        request = drive_service.files().export_media(fileId=SPREADSHEET_ID, mimeType='application/pdf')
         response = request.execute()
 
         # Создаем PDF файл с названием таблицы
@@ -175,7 +196,7 @@ def extract_spreadsheet_id(sheet_url: str) -> str:
 
 def get_spreadsheet_title(spreadsheet_id: str) -> str:
     try:
-        file = gspread_client.drive_service.files().get(fileId=spreadsheet_id, fields='name').execute()
+        file = drive_service.files().get(fileId=spreadsheet_id, fields='name').execute()
         spreadsheet_title = file.get('name', 'Untitled Spreadsheet')
         return spreadsheet_title
     except Exception as e:

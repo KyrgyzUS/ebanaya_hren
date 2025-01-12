@@ -4,11 +4,13 @@ import os
 import json
 import tempfile
 import base64
+import psycopg2
 from datetime import datetime
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import asyncio
 import gspread
+from googleapiclient.discovery import build
 from google.oauth2.service_account import Credentials
 
 # Настройки Google Sheets API
@@ -38,6 +40,7 @@ else:
     raise EnvironmentError("SERVICE_ACCOUNT_JSON_BASE64 не установлена в переменных окружения.")
 
 
+drive_service = build('drive', 'v3', credentials=creds)
 # Функция для подключения к базе данных PostgreSQL
 def get_db_connection():
     DATABASE_URL = os.getenv('DATABASE_URL')
@@ -57,7 +60,7 @@ def initialize_db():
     try:
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS clients (
-            id SERIAL PRIMARY KEY,
+            id BIGSERIAL PRIMARY KEY,
             first_name TEXT NOT NULL,
             last_name TEXT NOT NULL,
             phone_number TEXT NOT NULL UNIQUE,
@@ -68,25 +71,25 @@ def initialize_db():
         ''')
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS user_questions (
-            id SERIAL PRIMARY KEY,
-            chat_id INTEGER NOT NULL,
+            id BIGSERIAL PRIMARY KEY,
+            chat_id BIGINT NOT NULL,
             question TEXT NOT NULL,
-            date TEXT NOT NULL,
+            date TIMESTAMP NOT NULL,
             time TEXT NOT NULL
         )
         ''')
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS opened_sf (
-            id SERIAL PRIMARY KEY,
+            id BIGSERIAL PRIMARY KEY,
             sf_id TEXT NOT NULL,
-            chat_id INTEGER NOT NULL,
+            chat_id BIGINT NOT NULL,
             first_name TEXT NOT NULL,
             last_name TEXT NOT NULL,
             city TEXT NOT NULL,
             manager_name TEXT NOT NULL,
-            client_id INTEGER NOT NULL REFERENCES clients(id),
+            client_id BIGINT NOT NULL REFERENCES clients(id),
             phone_number TEXT NOT NULL,
-            date_opened TEXT NOT NULL,
+            date_opened TIMESTAMP NOT NULL,
             last_opened TEXT
         )
         ''')
@@ -188,14 +191,15 @@ def get_all_questions():
 # Сохранение данных клиента в базу данных
 def save_client_data(data):
     cleaned_number = clean_phone_number(data['phone_number'])
+    default_last_sf_id = "10qgTYnltMgProehHva5rfU8ynujI_zG89zU-XzDV4lQ"  # Значение по умолчанию
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
         cursor.execute('''
-        INSERT INTO clients (first_name, last_name, phone_number, city)
-        VALUES (%s, %s, %s, %s)
+        INSERT INTO clients (first_name, last_name, phone_number, city, last_sf_id)
+        VALUES (%s, %s, %s, %s, %s)
         RETURNING id
-        ''', (data['first_name'], data['last_name'], cleaned_number, data['city']))
+        ''', (data['first_name'], data['last_name'], cleaned_number, data['city'], default_last_sf_id))
         conn.commit()
         client_id = cursor.fetchone()[0]
         return client_id

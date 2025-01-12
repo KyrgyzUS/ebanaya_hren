@@ -1,5 +1,8 @@
 # main.py
 
+from dotenv import load_dotenv
+load_dotenv()
+
 import os
 import asyncio
 from aiogram import Bot, Dispatcher, types
@@ -10,7 +13,14 @@ from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from openai import AsyncOpenAI, OpenAIError
 import aiohttp
-
+from client_registration import (
+    RegistrationStates,
+    start_registration,
+    process_first_name_registration,
+    process_last_name_registration,
+    process_phone_number_registration,
+    process_city_registration,
+)
 from client_registration import register_handlers as register_client_handlers
 from databases import (
     get_client_by_phone,
@@ -42,7 +52,7 @@ initialize_db()
 # Получение переменных окружения
 TELEGRAM_API_TOKEN = os.getenv('TELEGRAM_API_TOKEN')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-SERVICE_ACCOUNT_JSON = os.getenv('SERVICE_ACCOUNT_JSON')  # Убедитесь, что это не используется, если вы используете SERVICE_ACCOUNT_JSON_BASE64
+SERVICE_ACCOUNT_JSON_BASE64 = os.getenv('SERVICE_ACCOUNT_JSON_BASE64')  # Убедитесь, что это не используется, если вы используете SERVICE_ACCOUNT_JSON_BASE64
 
 if not TELEGRAM_API_TOKEN:
     raise EnvironmentError("TELEGRAM_API_TOKEN не установлена в переменных окружения.")
@@ -123,8 +133,12 @@ async def process_client_id(message: types.Message, state: FSMContext):
         return
 
     async with state.proxy() as data:
+        # Сохраняем данные клиента по отдельным ключам
         data['client_id'] = client_id
-        data['first_name'], data['last_name'], data['phone_number'], data['city'] = client_data
+        data['first_name'] = client_data['first_name']
+        data['last_name'] = client_data['last_name']
+        data['phone_number'] = client_data['phone_number']
+        data['city'] = client_data['city']
 
     await CreateTableStates.next()
     sent_message = await message.reply("Пожалуйста, введите имя менеджера.", reply_markup=cancel_keyboard())
@@ -156,6 +170,7 @@ async def process_manager_name_table(message: types.Message, state: FSMContext):
         # Переименование файла
         first_name = data['first_name']
         last_name = data['last_name']
+        city = data['city']
         manager_name = data['manager_name']
         rename_spreadsheet(new_spreadsheet_id, first_name, last_name, manager_name)
 
@@ -170,7 +185,16 @@ async def process_manager_name_table(message: types.Message, state: FSMContext):
         await message.reply(f"Таблица переименована и доступна для всех: {new_spreadsheet_url}", reply_markup=keyboard)
 
         # Сохранение открытой счет-фактуры в базе данных
-        save_opened_sf(new_spreadsheet_id, user_id, first_name, last_name, data['city'], manager_name, client_id, data['phone_number'])
+        save_opened_sf(
+            sf_id=new_spreadsheet_id,
+            chat_id=user_id,
+            first_name=first_name,
+            last_name=last_name,
+            city=city,
+            manager_name=manager_name,
+            client_id=client_id,
+            phone_number=data['phone_number']
+        )
 
     await state.finish()
     user_data.pop(user_id, None)

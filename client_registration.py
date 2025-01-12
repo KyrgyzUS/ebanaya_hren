@@ -47,14 +47,15 @@ async def delete_last_bot_message(state: FSMContext, message: types.Message):
             print(f"Ошибка при удалении сообщения: {e}")
 
 # Функции для обработки регистрации клиента
-async def start_registration(callback_query: types.CallbackQuery, state: FSMContext, bot: Bot):
+async def start_registration(callback_query: types.CallbackQuery, state: FSMContext):
     await RegistrationStates.first_name.set()
-    sent_message = await bot.send_message(
+    sent_message = await callback_query.bot.send_message(
         callback_query.from_user.id,
         "Введите имя клиента:",
         reply_markup=cancel_keyboard()
     )
     await state.update_data(last_bot_message_id=sent_message.message_id)
+
 
 async def process_first_name_registration(message: types.Message, state: FSMContext):
     await delete_last_bot_message(state, message)
